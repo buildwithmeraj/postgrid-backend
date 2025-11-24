@@ -21,31 +21,29 @@ function verifyJWT(req, res, next) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader) {
-    console.log("❌ Missing Authorization header");
+    console.log("Missing Authorization header");
     return res.status(401).json({ message: "Missing Authorization header" });
   }
 
   const token = authHeader.split(" ")[1];
 
   if (!token) {
-    console.log("❌ No token after split");
+    console.log("No token after split");
     return res.status(401).json({ message: "Invalid Authorization format" });
   }
 
   try {
-    // Verify the token with your secret
+    // Verify the token with secret
     const decoded = jwt.verify(token, process.env.NEXTAUTH_SECRET);
-    console.log("✅ Token verified for user:", decoded.email);
+    console.log("Token verified for user:", decoded.email);
     req.user = decoded;
     next();
   } catch (err) {
-    console.log("❌ Token verification failed:", err.message);
+    console.log("Token verification failed:", err.message);
     if (err.name === "TokenExpiredError") {
       return res.status(401).json({ message: "Token expired" });
     }
-    return res
-      .status(403)
-      .json({ message: "Invalid token" + process.env.NEXTAUTH_SECRET });
+    return res.status(403).json({ message: "Invalid token" });
   }
 }
 
@@ -117,7 +115,7 @@ app.post("/api/categories", verifyJWT, async (req, res) => {
 
     const { categoriesCollection } = await connectDB();
 
-    // Check if category already exists (case-insensitive)
+    // Check if category already exists
     const existing = await categoriesCollection.findOne({
       name: { $regex: new RegExp(`^${name}$`, "i") },
     });
@@ -144,10 +142,41 @@ app.post("/api/categories", verifyJWT, async (req, res) => {
 app.get("/api/posts", async (req, res) => {
   try {
     const { postsCollection } = await connectDB();
+    const { limit, author, categoryId } = req.query;
+    const parsedLimit = parseInt(limit) || 0;
+    let query = {};
+
+    if (categoryId) {
+      query.categoryId = new ObjectId(categoryId);
+    }
+    if (author) {
+      query["author.email"] = author;
+    }
+
     const posts = await postsCollection
-      .find({})
+      .find(query)
+      .sort({ createdAt: -1 })
+      .limit(parsedLimit)
+      .toArray();
+
+    res.json(posts);
+  } catch (error) {
+    res
+      .status(500)
+      .json({ message: "Error fetching posts", error: error.message });
+  }
+});
+
+// GET all posts
+app.get("/api/my-posts", verifyJWT, async (req, res) => {
+  try {
+    const { postsCollection } = await connectDB();
+    const userEmail = req.user.email;
+    const posts = await postsCollection
+      .find({ "author.email": userEmail })
       .sort({ createdAt: -1 })
       .toArray();
+
     res.json(posts);
   } catch (error) {
     res
@@ -173,6 +202,28 @@ app.get("/api/posts/:id", async (req, res) => {
     res
       .status(500)
       .json({ message: "Error fetching post", error: error.message });
+  }
+});
+
+// increase views count
+app.post("/api/posts/:id/view", async (req, res) => {
+  const { id } = req.params;
+  const { postsCollection } = await connectDB();
+
+  try {
+    // Atomic increment
+    const result = await postsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $inc: { views: 1 } }
+    );
+    if (result.modifiedCount === 1) {
+      const updated = await postsCollection.findOne({ _id: new ObjectId(id) });
+      res.json({ success: true, views: updated.views });
+    } else {
+      res.status(404).json({ success: false, message: "Post not found" });
+    }
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -202,9 +253,7 @@ app.post("/api/posts", verifyJWT, async (req, res) => {
       author,
       createdAt: new Date(),
       updatedAt: new Date(),
-      published: true,
       views: 0,
-      likes: 0,
     };
 
     const result = await postsCollection.insertOne(newPost);
@@ -216,7 +265,7 @@ app.post("/api/posts", verifyJWT, async (req, res) => {
   }
 });
 
-// PUT - Update a post
+// Update a post
 app.put("/api/posts/:id", verifyJWT, async (req, res) => {
   try {
     const postId = req.params.id;
@@ -233,6 +282,17 @@ app.put("/api/posts/:id", verifyJWT, async (req, res) => {
     }
 
     const { postsCollection } = await connectDB();
+
+    // Find the post
+    const post = await postsCollection.findOne({ _id: new ObjectId(postId) });
+    if (!post) return res.status(404).json({ message: "Post not found" });
+
+    // Verify author
+    if (post.author.email !== req.user.email) {
+      return res
+        .status(403)
+        .json({ message: "You are not the author of this post" });
+    }
 
     const updatedPost = {
       title,
@@ -253,14 +313,7 @@ app.put("/api/posts/:id", verifyJWT, async (req, res) => {
       { returnDocument: "after" }
     );
 
-    if (!result.value) {
-      return res.status(404).json({ message: "Post not found" });
-    }
-
-    res.json({
-      message: "Post updated successfully",
-      post: result.value,
-    });
+    res.json({ message: "Post updated successfully", post: result.value });
   } catch (error) {
     res
       .status(500)
@@ -268,7 +321,7 @@ app.put("/api/posts/:id", verifyJWT, async (req, res) => {
   }
 });
 
-// DELETE - Delete a post and category if no other posts exist
+// Delete a post and category if no other posts exist
 app.delete("/api/posts/:id", verifyJWT, async (req, res) => {
   try {
     const postId = req.params.id;
@@ -279,30 +332,28 @@ app.delete("/api/posts/:id", verifyJWT, async (req, res) => {
 
     const { postsCollection, categoriesCollection } = await connectDB();
 
-    // Find the post to get its categoryId
-    const post = await postsCollection.findOne({
-      _id: new ObjectId(postId),
-    });
+    // Find the post
+    const post = await postsCollection.findOne({ _id: new ObjectId(postId) });
+    if (!post) return res.status(404).json({ message: "Post not found" });
 
-    if (!post) {
-      return res.status(404).json({ message: "Post not found" });
+    // Verify author
+    if (post.author.email !== req.user.email) {
+      return res
+        .status(403)
+        .json({ message: "You are not the author of this post" });
     }
 
     // Delete the post
-    await postsCollection.deleteOne({
-      _id: new ObjectId(postId),
-    });
+    await postsCollection.deleteOne({ _id: new ObjectId(postId) });
 
-    // Check if there are any other posts in the same category
+    // Check remaining posts in the same category
     const remainingPosts = await postsCollection.countDocuments({
       categoryId: post.categoryId,
     });
 
-    // If no other posts exist in this category, delete the category
+    // Delete category if no posts remain
     if (remainingPosts === 0) {
-      await categoriesCollection.deleteOne({
-        _id: post.categoryId,
-      });
+      await categoriesCollection.deleteOne({ _id: post.categoryId });
       console.log(`Category ${post.categoryId} deleted (no remaining posts)`);
     }
 
