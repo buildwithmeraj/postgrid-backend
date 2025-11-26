@@ -8,12 +8,19 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // cors
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://postgrid-blog.vercel.app",
+];
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:3000",
+    origin: allowedOrigins,
     credentials: true,
   })
 );
+
+// use json
 app.use(express.json());
 
 // Verify JWT with proper signature validation
