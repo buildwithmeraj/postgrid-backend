@@ -138,6 +138,33 @@ app.post("/api/categories", verifyJWT, async (req, res) => {
   }
 });
 
+// GET single category by ID
+app.get("/api/categories/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid category ID" });
+    }
+
+    const { categoriesCollection } = await connectDB();
+    const category = await categoriesCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!category) {
+      return res.status(404).json({ message: "Category not found" });
+    }
+
+    res.json(category);
+  } catch (error) {
+    res.status(500).json({
+      message: "Error fetching category",
+      error: error.message,
+    });
+  }
+});
+
 // GET all posts
 app.get("/api/posts", async (req, res) => {
   try {
@@ -167,7 +194,32 @@ app.get("/api/posts", async (req, res) => {
   }
 });
 
-// GET all posts
+// GET all posts of a specific categoryId
+app.get("/api/posts/category/:categoryId", async (req, res) => {
+  try {
+    const { categoryId } = req.params;
+
+    if (!ObjectId.isValid(categoryId)) {
+      return res.status(400).json({ message: "Invalid category ID" });
+    }
+
+    const { postsCollection } = await connectDB();
+
+    const posts = await postsCollection
+      .find({ categoryId: new ObjectId(categoryId) })
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.json(posts);
+  } catch (error) {
+    res.status(500).json({
+      message: "Error fetching posts by category",
+      error: error.message,
+    });
+  }
+});
+
+// GET my posts
 app.get("/api/my-posts", verifyJWT, async (req, res) => {
   try {
     const { postsCollection } = await connectDB();
@@ -211,7 +263,7 @@ app.post("/api/posts/:id/view", async (req, res) => {
   const { postsCollection } = await connectDB();
 
   try {
-    // Atomic increment
+    // increment
     const result = await postsCollection.updateOne(
       { _id: new ObjectId(id) },
       { $inc: { views: 1 } }
