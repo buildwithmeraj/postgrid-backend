@@ -80,7 +80,52 @@ async function connectDB() {
 }
 
 app.get("/", (req, res) => {
-  res.send("Smart server is running");
+  res.send(`
+    <html>
+      <head>
+        <title>PostGrid API</title>
+        <style>
+          body {
+            font-family: system-ui, sans-serif;
+            background-color: #f9fafb;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+          }
+          h1 {
+            color: #2563eb;
+          }
+          a {
+            color: #ef4444;
+            text-decoration: none;
+            font-weight: 600;
+          }
+          a:hover {
+            text-decoration: underline;
+          }
+          .box {
+            background: white;
+            padding: 2rem 3rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            text-align: center;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="box">
+          <h1>PostGrid Backend API</h1>
+          <p>This is the backend server for the PostGrid project.</p>
+          <p>Please visit the frontend site:</p>
+          <a href="https://postgrid-blog.vercel.app/">Go to PostGrid Frontend</a>
+        </div>
+      </body>
+    </html>
+  `);
 });
 
 // Example protected route
